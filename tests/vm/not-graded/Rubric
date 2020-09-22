@@ -1,0 +1,31 @@
+Functionality of mm:
+
+- Test "mmap" system call.
+2	mmap-read
+2	mmap-write
+2	mmap-shuffle
+
+2	mmap-twice
+
+2	mmap-unmap
+1	mmap-exit
+
+3	mmap-clean
+
+2	mmap-close
+2	mmap-remove
+
+- Test robustness of "mmap" system call.
+1	mmap-bad-fd
+1	mmap-inherit
+1	mmap-null
+1	mmap-zero
+
+2	mmap-misalign
+
+2	mmap-over-code
+2	mmap-over-data
+2	mmap-over-stk
+2	mmap-overlap
+
+4	page-merge-mm

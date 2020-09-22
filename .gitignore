@@ -1,0 +1,13 @@
+*.a
+*.o
+*.taghl
+*.vim
+*~
+.DS_Store
+.PINTOS_PATH
+.tags
+TAGS
+cscope.files
+cscope.out
+tags
+utils/qemu

@@ -1,0 +1,167 @@
+#!/bin/bash
+
+function usage()
+{
+    PROG=$(basename $0)
+    printf "usage: $PROG [--gdb] test-name\n"
+    exit 2
+}
+
+function cleanup()
+{
+    popd >/dev/null 2>&1
+}
+trap cleanup EXIT
+
+# Colored text for status messages
+RED="\033[31m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+BLUE="\033[34m"
+FAIL=$RED
+PASS=$GREEN
+INFO=$BLUE
+NC="\033[0m"
+
+# On macOS, use GNU sed (gsed) to remove ANSI terinal commands from qemu
+if [ $(uname -s) = "Darwin" ]; then
+    SED=gsed
+else
+    SED=sed
+fi
+
+# Run this script from the build directory or its parent
+if [ -d build ]; then
+    pushd build >/dev/null
+elif [[ $(basename $(pwd)) != build ]]; then
+    printf "No build directory found. Try running 'make'.\n" >&2
+    usage
+fi
+
+# Parse arguments. This script expects positional argument (the names of
+# the test cases) and will pass any flags to the `pintos` commands.
+PINTOS_FLAGS=()
+TEST_NAMES=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -*) PINTOS_FLAGS+=("$1")
+        ;;
+        *) TEST_NAMES+=("$1")
+        ;;
+    esac
+    shift
+done
+
+# Find the path to a test.
+#
+#  [in] $1 -- The name of a test
+# [out] $TEST_PATH -- The path to a test
+#
+# Must be a non-empty string that may either
+#  1. Point to the executable directly (build/tests/userprog/args-none)
+#  2. Be the name of the test (args-none)
+# In the latter case, look for the .ck file in the top level Pintos test
+# directory.
+function test_path()
+{
+    NAME=$1
+    TEST_NAME=${NAME/build\//}
+    if [[ $TEST_NAME == "" ]]; then
+        usage
+    elif [ -f $TEST_NAME ]; then
+        TEST_PATH=$TEST_NAME
+    else
+        # We're in the build directory, so the Pintos tests are two dirs up.
+        TEST_DIR=../../tests
+        TEST_CK=$(find $TEST_DIR -name $TEST_NAME.ck)
+        if [[ $TEST_CK == "" ]]; then
+            printf "invalid test: $1\n"
+            exit 1
+        else
+            TEST_PATH=${TEST_CK/$TEST_DIR/tests}
+            TEST_PATH=${TEST_PATH/.ck/}
+        fi
+    fi
+    printf "${INFO}Test:$NC $TEST_PATH\n"
+}
+
+# Get the persistence check command for a test
+#
+#  [in] $1 -- The path to a non-persistence test (from test_path)
+# [out] $PERSISTENCE -- The persistence check command, if any
+function persistence_ck()
+{
+    PERSISTENCE=
+    ptest="$1-persistence"
+    if [ -f "../../$ptest.ck" ]; then
+        PERSISTENCE="perl -I../.. ../../$ptest.ck $ptest $ptest.result"
+    fi
+    echo "$PERSISTENCE"
+}
+
+# Run a single test with the options from the command line
+#
+#  [in] $1 -- The the path to the test
+# [out] None.
+#
+# The Make command prints the steps required to create the output file.
+# Userprog and VM only use one command, which run Pintos without a
+# persistent disk. Filesys, on the other hand, creates a tmp.dsk, runs
+# Pintos twice to check for persistence, then removes the tmp.dsk.
+#
+#  1. Remove output files so the Make has something to do.
+#  2. Get a list of the commands Pintos will run.
+#  3. Remove file redirection.
+#  4. Add flags to the commands that actually call pintos.
+#  5. Remove ANSI terminal control characters from the qemu output with sed.
+#  6. String the commands together and call them.
+function run_test()
+{
+    TEST_PATH=$1
+    rm -f -v $TEST_PATH.{output,errors,result}
+    COMMANDS=$(make --dry-run $TEST_PATH.result)
+    persistence_ck $TEST_PATH
+    COMMANDS+=$(printf '%b' "\n$PERSISTENCE")
+
+    printf "${INFO}Commands:$NC $COMMANDS\n"
+
+    while read -a line; do
+        CMD=${line[*]}
+        if [ ${line[0]} == "cd" ]; then
+            # This script uses pushd/popd to manage the cwd
+            continue
+        elif [ ${line[0]} == "pintos" ]; then
+            # path/to/test.output
+            OUTPUT=$(echo $CMD \
+                | cut -d '>' -f 3)
+            # Remove input, output, and error redirection
+            PINTOS_ARGS=$(echo $CMD \
+                        | cut -d '<' -f 1 \
+                        | cut -b 7-)
+            # Add user flags, use /dev/null for input, and tee to the output file
+            PINTOS_CMD="pintos $PINTOS_FLAGS $PINTOS_ARGS < /dev/null | tee $OUTPUT"
+            printf "${INFO}Pintos:$NC $PINTOS_CMD\n"
+            # Escape non-printable characters that the SeaBIOS string contains
+            eval $PINTOS_CMD | $SED -Ee 's/\x1b(\[(\?7l|2J)|c)//g'
+        elif [ ${line[0]} == "perl" ]; then
+            # Checking whether the test passed or failed
+            printf "${INFO}Checking:$NC $CMD\n"
+            OUTPUT=`eval $CMD`
+            if [ "$(echo $OUTPUT | head -n1 | cut -d ' ' -f 1)" = "FAIL" ]; then
+                printf "$FAIL"
+            else
+                printf "$PASS"
+            fi
+            printf "$OUTPUT$NC\n"
+        else
+            # Persistence-related commands
+            printf "${INFO}Command:$NC $CMD\n"
+            eval $CMD
+        fi
+    done <<< "$COMMANDS"
+}
+
+for test_name in ${TEST_NAMES[*]}; do
+    test_path $test_name
+    run_test $TEST_PATH
+done

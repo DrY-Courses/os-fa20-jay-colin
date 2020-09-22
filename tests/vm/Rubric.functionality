@@ -1,0 +1,14 @@
+Functionality of virtual memory subsystem:
+- Test stack growth.
+3	pt-grow-stack
+3	pt-grow-stk-sc
+3	pt-big-stk-obj
+3	pt-grow-pusha
+
+- Test paging behavior.
+5	page-linear
+2	page-parallel
+3	page-shuffle
+2	page-merge-seq
+2	page-merge-par
+2	page-merge-stk
