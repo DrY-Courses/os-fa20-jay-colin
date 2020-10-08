@@ -91,13 +91,43 @@ struct thread {
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
 
+    int clCreated;
+    struct list child_list;
+    struct list file_list;
+    int fd_counter;
+    bool waiting;
+    struct thread *parent;
+    struct semaphore *reaping;
+    struct semaphore *exiting;
+    struct semaphore *launching; 
+    int exitValue;
+    uint32_t *pagedir; /* Page directory. */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
-    uint32_t *pagedir; /* Page directory. */
+    
 #endif
 
     /* Owned by thread.c. */
     unsigned magic; /* Detects stack overflow. */
+};
+
+struct child_elem{
+    struct thread *self;
+    struct list_elem elem;
+};
+
+struct file_elem{
+    int fd;
+    struct file *file;
+    struct list_elem elem;
+    char *name;
+};
+
+struct aux {
+    struct thread *parent;
+    char *cmd_copy;
+    int exitValue;
 };
 
 /* If false (default), use round-robin scheduler.
@@ -130,6 +160,8 @@ void thread_set_priority(int);
 int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
-int thread_get_load_avg(void);
+int thread_get_load_avg(void);\
+
+struct thread * find_current_thread(tid_t t, struct thread *parent);
 
 #endif /* threads/thread.h */

@@ -180,6 +180,8 @@ tid_t
 thread_create(const char *name, int priority,
               thread_func *function, void *aux)
 {
+    struct aux *auxPtr = (struct aux *) aux;
+
     struct thread *t;
     struct kernel_thread_frame *kf;
     struct switch_entry_frame *ef;
@@ -204,6 +206,7 @@ thread_create(const char *name, int priority,
     kf->function = function;
     kf->aux = aux;
 
+    
     /* Stack frame for switch_entry(). */
     ef = alloc_frame(t, sizeof *ef);
     ef->eip = (void (*)(void))kernel_thread;
@@ -216,8 +219,44 @@ thread_create(const char *name, int priority,
     /* Add to run queue. */
     thread_unblock(t);
 
+
+    if(auxPtr->parent != NULL)
+    {
+        t->parent = auxPtr->parent;
+        list_init(&(t->child_list));
+        list_init(&(t->file_list));
+        t->clCreated = 1;
+        t->fd_counter = 3;
+
+
+        if(t->parent->clCreated == 0)
+        {
+            list_init(&(auxPtr->parent->child_list));
+            t->parent->clCreated = 1;
+            t->parent->fd_counter = 3;
+        }
+
+        addChildThread(auxPtr->parent, t);
+
+        t->launching = (struct semaphore *) malloc(sizeof(struct semaphore));
+        t->reaping = (struct semaphore *) malloc(sizeof(struct semaphore));
+        t->exiting = (struct semaphore *) malloc(sizeof(struct semaphore));
+
+        sema_init(t->launching, 0);
+        sema_init(t->reaping, 0);
+        sema_init(t->exiting, 0);
+    }   
+
     return tid;
 }
+
+void addChildThread(struct thread *parent, struct thread *child)
+{
+    struct child_elem *child_e = (struct child_elem *)malloc(sizeof(struct child_elem));
+    child_e->self = child;
+    list_push_back(&(parent->child_list), &(child_e->elem));
+}
+
 
 /* Puts the current thread to sleep.  It will not be scheduled
  * again until awoken by thread_unblock().
@@ -598,3 +637,16 @@ allocate_tid(void)
 /* Offset of `stack' member within `struct thread'.
  * Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+struct thread * find_current_thread(tid_t tid, struct thread *parent)
+{
+    struct list_elem *e;
+    
+    for (e = list_begin (&(parent->child_list)); e != list_end (&(parent->child_list)); e = list_next (e))
+    {
+        struct child_elem *tPtr = list_entry (e, struct child_elem, elem);
+        if(tPtr->self->tid == tid)
+            return tPtr->self;
+    }
+    return NULL;
+}
