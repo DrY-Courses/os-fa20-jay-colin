@@ -10,6 +10,7 @@
 #include "filesys/filesys.h"
 #include "string.h"
 #include "stdlib.h"
+#include "threads/synch.h"
 
 static void syscall_handler(struct intr_frame *);
 void sys_halt();
@@ -30,10 +31,12 @@ int add_file(struct thread *cur, struct file *fPtr, char *name);
 void remove_file(int fd);
 struct file_elem * get_file(int fd);
 
+static struct lock file_system;
 
 void
 syscall_init(void)
 {
+    lock_init(&file_system);
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -43,6 +46,8 @@ syscall_handler(struct intr_frame *f UNUSED)
     uint32_t callNo;
     uint32_t *user_esp = f->esp;
     struct thread *t = thread_current();
+    t->espPtr = f->esp;
+    
     if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
                 sys_exit(-1);
 
@@ -269,11 +274,15 @@ int sys_wait(pid_t pid)
 bool sys_create(const char *file, unsigned initial_size)
 {
     struct thread *t = thread_current();
-
+    
     if(file == NULL || !is_user_vaddr(file) || pagedir_get_page(t->pagedir, file) == NULL)
        sys_exit(-1);
 
-    return filesys_create(file, initial_size);
+    lock_acquire(&file_system);
+    bool retVal = filesys_create(file, initial_size);
+    lock_release(&file_system);
+
+    return retVal;
 }
 
 //Deletes the file called file. Returns true if successful, false otherwise. 
@@ -283,7 +292,11 @@ bool sys_remove(const char *file)
     if(file == NULL)
         sys_exit(-1);
 
-    return filesys_remove(file);
+    lock_acquire(&file_system);
+    bool retVal = filesys_remove(file);
+    lock_release(&file_system);
+
+    return retVal;
 }  
 
 //Opens the file called file. Returns a nonnegative integer handle called a "file descriptor" (fd), or -1 if the file could not be opened.
@@ -301,8 +314,11 @@ int sys_open(const char *file)
 
     int fd = -1;
     struct thread *cur = thread_current();
+
+    lock_acquire(&file_system);
     struct thread *filePtr = filesys_open(file);
-    
+    lock_release(&file_system);
+
     if(filePtr != NULL)
     {
         fd = add_file(cur, filePtr, file);
@@ -317,7 +333,12 @@ int sys_filesize(int fd)
     struct file_elem *fPtr = get_file(fd);
     if(fPtr == NULL)
         return -1;
-    return file_length(fPtr->file);
+
+    lock_acquire(&file_system);
+    int retVal = file_length(fPtr->file);
+    lock_release(&file_system);
+
+    return retVal;
 }
 
 //Reads size bytes from the file open as fd into buffer. Returns the number of bytes actually read (0 at end of file), 
@@ -326,7 +347,7 @@ int sys_read(int fd, void *buffer, unsigned size)
 {
     struct thread *t = thread_current();
 
-    if(buffer == NULL || !is_user_vaddr(buffer) || pagedir_get_page(t->pagedir, buffer) == NULL)
+    if(buffer == NULL || !is_user_vaddr(buffer))
        sys_exit(-1);
 
     int retVal = -1;
@@ -343,8 +364,11 @@ int sys_read(int fd, void *buffer, unsigned size)
     {
         struct file_elem *fPtr = get_file(fd);
         if(fPtr == NULL)
-            return retVal; 
+            return retVal;
+
+        lock_acquire(&file_system); 
         retVal = file_read(fPtr->file, buffer, size);
+        lock_release(&file_system);
     }
 
     return retVal;
@@ -381,7 +405,10 @@ int sys_write(int fd, const void *buffer, unsigned size)
         char *file_name = parse(t->name);
         if(strcmp(fPtr->name, file_name) == 0)
             return 0;
+        
+        lock_acquire(&file_system); 
         retVal = file_write(fPtr->file, buffer, size);
+        lock_release(&file_system);
     }
     
     return retVal;
@@ -399,7 +426,10 @@ void sys_seek(int fd, unsigned position)
     struct file_elem *fPtr = get_file(fd);
     if(fPtr == NULL)
         return;
-    file_seek(fPtr->file, position); 
+
+    lock_acquire(&file_system); 
+    file_seek(fPtr->file, position);
+    lock_release(&file_system); 
 }
 
 //Returns the position of the next byte to be read or written in open file fd, expressed in bytes from the beginning of the file. 
@@ -408,7 +438,12 @@ unsigned sys_tell(int fd)
     struct file_elem *fPtr = get_file(fd);
     if(fPtr == NULL)
         return -1;
-    return file_tell(fPtr->file);
+    
+    lock_acquire(&file_system); 
+    unsigned retVal = file_tell(fPtr->file);
+    lock_release(&file_system); 
+    
+    return retVal;
 }
 
 //Closes file descriptor fd. Exiting or terminating a process implicitly closes all its open file descriptors, as if by calling this function for each one. 
@@ -419,7 +454,11 @@ void sys_close(int fd)
     if(fPtr == NULL)
         return;
     list_remove(&(fPtr->elem));
+
+    lock_acquire(&file_system); 
     file_close(fPtr->file);
+    lock_release(&file_system); 
+
     free(fPtr);
     
 } 
