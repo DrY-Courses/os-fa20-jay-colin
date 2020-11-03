@@ -49,6 +49,7 @@ struct ft_entry * frame_get(bool zeroes)
 
         if(current == list_end(&frame_table))
             current = list_begin(&frame_table);
+
         entryPtr = list_entry(current, struct ft_entry, list_entry);
 
         x++;
@@ -65,6 +66,7 @@ struct ft_entry * frame_get(bool zeroes)
 
             if(current == list_end(&frame_table))
                 current = list_begin(&frame_table);
+
             entryPtr = list_entry(current, struct ft_entry, list_entry);
 
             i++;
@@ -81,6 +83,7 @@ struct ft_entry * frame_get(bool zeroes)
 
                 if(current == list_end(&frame_table))
                     current = list_begin(&frame_table);
+                
                 entryPtr = list_entry(current, struct ft_entry, list_entry);
 
                 j++;
