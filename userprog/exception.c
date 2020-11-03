@@ -1,10 +1,14 @@
 #include <inttypes.h>
 #include <stdio.h>
-
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/exception.h"
 #include "userprog/gdt.h"
+#include "vm/page.h"
+#include "vm/frame.h"
+#include "threads/vaddr.h"
+#include "userprog/process.h"
+#include <hash.h>
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -133,6 +137,8 @@ page_fault(struct intr_frame *f)
      * (#PF)". */
     asm ("movl %%cr2, %0" : "=r" (fault_addr));
 
+    struct thread *cur = thread_current();
+
     /* Turn interrupts back on (they were only off so that we could
      * be assured of reading CR2 before it changed). */
     intr_enable();
@@ -145,13 +151,81 @@ page_fault(struct intr_frame *f)
     write = (f->error_code & PF_W) != 0;
     user = (f->error_code & PF_U) != 0;
 
-    /* To implement virtual memory, delete the rest of the function
-     * body, and replace it with code that brings in the page to
-     * which fault_addr refers. */
-    printf("Page fault at %p: %s error %s page in %s context.\n",
-           fault_addr,
-           not_present ? "not present" : "rights violation",
-           write ? "writing" : "reading",
-           user ? "user" : "kernel");
-    kill(f);
+    void *esp;
+
+    if(user)
+        esp = f->esp;
+    else
+        esp = thread_current()->espPtr;
+
+    if(not_present)
+    {
+        struct spt_entry dummy;
+        dummy.key = pg_round_down(fault_addr);
+        struct hash_elem *target = hash_find(&(cur->pageTable), &(dummy.hash_elem));
+
+        if(target != NULL)
+        {
+            struct spt_entry *entryPtr = hash_entry(target, struct spt_entry, hash_elem);
+            struct ft_entry *frame = frame_get(false);
+
+            lock_acquire(&frame_lock);
+
+            entryPtr->kpage = frame->page_addr;
+            frame->page = entryPtr; 
+            frame->ownerTid = thread_current()->tid;
+
+            if(entryPtr->inSwap)
+            {
+                swap_in(entryPtr->swapIndex, frame->page_addr);
+                               
+                if (!install_page(entryPtr->upage, entryPtr->kpage, entryPtr->writable)) {
+                    palloc_free_page(entryPtr->kpage);
+                    return;
+                }
+
+                entryPtr->inSwap = false;                          
+            }
+            else
+            {
+                entryPtr->kpage = frame->page_addr;
+                frame->page = entryPtr;
+
+                file_seek(entryPtr->fPtr, entryPtr->offset);
+                if (file_read(entryPtr->fPtr, entryPtr->kpage, entryPtr->page_read_bytes) != (int)(entryPtr->page_read_bytes)) {
+                    palloc_free_page(entryPtr->kpage);
+                    return;
+                }
+                memset(entryPtr->kpage + entryPtr->page_read_bytes, 0, entryPtr->page_zero_bytes);
+
+                if (!install_page(entryPtr->upage, entryPtr->kpage, entryPtr->writable)) {
+                    palloc_free_page(entryPtr->kpage);
+                    return;
+                }
+            }
+
+            lock_release(&frame_lock);
+        }
+        else if(esp - 32 <= fault_addr)
+            grow_stack(fault_addr);
+        else if(user)
+        {
+            printf("Page fault at %p: %s error %s page in %s context.\n",
+                fault_addr,
+                not_present ? "not present" : "rights violation",
+                write ? "writing" : "reading",
+                user ? "user" : "kernel");
+
+            kill(f);
+        }
+        else
+        {
+            sys_exit(-1);
+        }  
+        
+    }
+    else
+    {
+        sys_exit(-1);
+    }        
 }

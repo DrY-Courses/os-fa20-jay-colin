@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "vm/page.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -225,6 +226,7 @@ thread_create(const char *name, int priority,
         t->parent = auxPtr->parent;
         list_init(&(t->child_list));
         list_init(&(t->file_list));
+        hash_init(&(t->pageTable), page_hash, page_less, NULL);
         t->clCreated = 1;
         t->fd_counter = 3;
 
@@ -232,6 +234,7 @@ thread_create(const char *name, int priority,
         if(t->parent->clCreated == 0)
         {
             list_init(&(auxPtr->parent->child_list));
+            hash_init(&(t->parent->pageTable), page_hash, page_less, NULL);
             t->parent->clCreated = 1;
             t->parent->fd_counter = 3;
         }
