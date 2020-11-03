@@ -6,6 +6,7 @@
 #include "userprog/gdt.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
 #include <hash.h>
@@ -175,6 +176,9 @@ page_fault(struct intr_frame *f)
             frame->page = entryPtr; 
             frame->ownerTid = thread_current()->tid;
 
+            
+            lock_release(&frame_lock);
+
             if(entryPtr->inSwap)
             {
                 swap_in(entryPtr->swapIndex, frame->page_addr);
@@ -188,9 +192,6 @@ page_fault(struct intr_frame *f)
             }
             else
             {
-                entryPtr->kpage = frame->page_addr;
-                frame->page = entryPtr;
-
                 file_seek(entryPtr->fPtr, entryPtr->offset);
                 if (file_read(entryPtr->fPtr, entryPtr->kpage, entryPtr->page_read_bytes) != (int)(entryPtr->page_read_bytes)) {
                     palloc_free_page(entryPtr->kpage);
@@ -204,7 +205,6 @@ page_fault(struct intr_frame *f)
                 }
             }
 
-            lock_release(&frame_lock);
         }
         else if(esp - 32 <= fault_addr)
             grow_stack(fault_addr);
