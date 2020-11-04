@@ -17,6 +17,7 @@ struct ft_entry{
     struct list_elem list_entry;
     bool isAllocated;
     int ownerTid;
+    struct thread *owner;
 };
 
 void frame_init();

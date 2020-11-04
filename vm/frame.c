@@ -109,6 +109,8 @@ struct ft_entry * frame_get(bool zeroes)
     if(zeroes)
          memset(entryPtr->page_addr, 0, PGSIZE);
 
+    entryPtr->owner = thread_current();
+
     lock_release(&frame_lock);
     
     return entryPtr;
@@ -126,7 +128,7 @@ void unallocate_FTE(int tid)
     {
         if(tid == entryPtr->ownerTid)
         {
-            pagedir_clear_page(thread_current()->pagedir, entryPtr->page->upage);
+            pagedir_clear_page(entryPtr->owner->pagedir, entryPtr->page->upage);
             entryPtr->isAllocated = false;
             entryPtr->page = NULL;
         }
