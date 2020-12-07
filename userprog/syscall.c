@@ -26,6 +26,11 @@ int sys_write(int fd, const void *buffer, unsigned size);
 void sys_seek(int fd, unsigned position);
 unsigned sys_tell(int fd);
 void sys_close(int fd);
+bool chdir(const char *dir);
+bool mkdir (const char *dir);
+bool readdir (int fd, char *name);
+bool isdir (int fd);
+int inumber (int fd);
 
 int add_file(struct thread *cur, struct file *fPtr, char *name);
 void remove_file(int fd);
@@ -220,7 +225,63 @@ syscall_handler(struct intr_frame *f UNUSED)
             uint32_t fd = (uint32_t)(*user_esp);
             sys_close((int) fd);
             break;
-        } 
+        }
+
+        case SYS_CHDIR:
+        {
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t dir = (uint32_t) *user_esp;
+            f->eax = chdir((char *) dir);
+            break;
+        }
+
+        case SYS_MKDIR:
+        {
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t dir = (uint32_t) *user_esp;
+            f->eax = mkdir((char *) dir);
+            break;
+        }
+
+        case SYS_READDIR:
+        {
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t fd = (uint32_t) *user_esp;
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t name = (uint32_t) *user_esp;
+
+            f->eax = readdir((int)fd, (char*) name);
+            break;
+        }
+
+        case SYS_ISDIR:
+        {
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t fd = (uint32_t) *user_esp;
+            f->eax = isdir((int) fd);
+            break;
+        }
+
+        case SYS_INUMBER:
+        {
+            user_esp++;
+            if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
+                sys_exit(-1);
+            uint32_t fd = (uint32_t) *user_esp;
+            f->eax = inumber((int) fd);
+            break;
+        }  
+
     }
 
 }
@@ -277,9 +338,10 @@ bool sys_create(const char *file, unsigned initial_size)
     
     if(file == NULL || !is_user_vaddr(file) || pagedir_get_page(t->pagedir, file) == NULL)
        sys_exit(-1);
+       
 
     lock_acquire(&file_system);
-    bool retVal = filesys_create(file, initial_size);
+    bool retVal = filesys_create(file, initial_size, 0);
     lock_release(&file_system);
 
     return retVal;
@@ -405,7 +467,7 @@ int sys_write(int fd, const void *buffer, unsigned size)
         char *file_name = parse(t->name);
         if(strcmp(fPtr->name, file_name) == 0)
             return 0;
-        
+
         lock_acquire(&file_system); 
         retVal = file_write(fPtr->file, buffer, size);
         lock_release(&file_system);
@@ -475,6 +537,86 @@ int add_file(struct thread *cur, struct file *fPtr, char *name)
     cur->fd_counter++;
 
     return fd;
+}
+
+// Changes the current working directory of the process to dir, which may be relative or absolute. Returns true if successful, false on failure. 
+bool chdir(const char *dir)
+{
+    char** args = malloc(strlen(dir)+1);
+    int numArgs = 0;
+    char *save_ptr, *token;
+
+    struct dir * currentDirectory;
+
+    if(dir[0] == '/' || thread_current()->currDirectory == NULL)
+       currentDirectory = dir_open_root();
+    else
+    {
+        currentDirectory = thread_current()->currDirectory;
+    }
+    
+
+    while((token = strtok_r(dir, "/", &save_ptr)) != NULL){
+        args[numArgs] = token;
+        numArgs++;
+        dir = NULL;
+    }
+
+
+    for(int i = 0; i < numArgs; i++)
+    {
+        struct inode * inodePtr;
+        if(dir_lookup(currentDirectory, args[i], inodePtr) == false)
+            return false;
+        else
+        {
+            dir_close(currentDirectory);
+            currentDirectory = dir_open(inodePtr);
+        }
+        
+    }
+
+    thread_current()->currDirectory = currentDirectory;
+
+    return true;
+
+}
+
+//Creates the directory named dir, which may be relative or absolute. Returns true if successful, false on failure. 
+//Fails if dir already exists or if any directory name in dir, besides the last, does not already exist. 
+//That is, mkdir("/a/b/c") succeeds only if "/a/b" already exists and "/a/b/c" does not. 
+bool mkdir (const char *dir)
+{
+    lock_acquire(&file_system); 
+    bool retVal = filesys_create(dir, 512, 1);
+    lock_release(&file_system);
+
+    return retVal;
+}
+
+//Reads a directory entry from file descriptor fd, which must represent a directory. 
+//If successful, stores the null-terminated file name in name, which must have room for READDIR_MAX_LEN + 1 bytes, and returns true. 
+//If no entries are left in the directory, returns false.
+//"." and ".." should not be returned by readdir.
+//If the directory changes while it is open, then it is acceptable for some entries not to be read at all or to be read multiple times. 
+//Otherwise, each directory entry should be read once, in any order. 
+bool readdir (int fd, char *name)
+{
+    return false;
+} 
+
+//Returns true if fd represents a directory, false if it represents an ordinary file. 
+bool isdir (int fd)
+{
+    return false;
+}
+
+//Returns the inode number of the inode associated with fd, which may represent an ordinary file or a directory.
+//An inode number persistently identifies a file or directory. It is unique during the file's existence. 
+//In Pintos, the sector number of the inode is suitable for use as an inode number. 
+int inumber (int fd)
+{
+    return 0;
 }
 
 struct file_elem * get_file(int fd)

@@ -229,7 +229,9 @@ thread_create(const char *name, int priority,
         hash_init(&(t->pageTable), page_hash, page_less, NULL);
         t->clCreated = 1;
         t->fd_counter = 3;
-
+        
+        if(auxPtr->parent->currDirectory != NULL)
+            t->currDirectory = auxPtr->parent->currDirectory;
 
         if(t->parent->clCreated == 0)
         {

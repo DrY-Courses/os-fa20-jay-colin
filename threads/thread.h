@@ -106,6 +106,7 @@ struct thread {
     struct hash pageTable;
     struct file *filePtr;
     void *espPtr;
+    struct dir * currDirectory;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
