@@ -53,10 +53,10 @@ filesys_create(const char *name, off_t initial_size, int type)
     //struct dir *dir = dir_open_root();
     bool success;
 
-    char** args = (char**)malloc((strlen(name)+1) * sizeof(char));
+    char** args = (char**)malloc((strlen(name)+1));
     int numArgs = 0;
     char *save_ptr, *token;
-    char *copy = (char *) malloc((strlen(name) + 1) * sizeof(char));
+    char *copy = (char *) malloc((strlen(name) + 1));
     strlcpy(copy, name, strlen(name) + 1);
 
 
@@ -80,6 +80,99 @@ filesys_create(const char *name, off_t initial_size, int type)
     {
     
         if(copy[0] == '/' || thread_current()->currDirectory == NULL)
+        {
+            currentDirectory = dir_open_root();
+            currentDirectory->inode->data.type = 1;
+        }            
+        else
+        {
+            currentDirectory = thread_current()->currDirectory;
+        }
+        
+        while((token = strtok_r(copy, "/", &save_ptr)) != NULL){
+            args[numArgs] = token;
+            numArgs++;
+            copy = NULL;
+        }
+
+        for(int i = 0; i < numArgs - 1; i++)
+        {
+            struct inode * inodePtr;
+
+            if(dir_lookup(currentDirectory, args[i], &inodePtr) == false)
+            {
+                free(copy);
+                return false;
+            }
+            else if(inodePtr->data.type == 1)
+            {
+                dir_close(currentDirectory);
+                currentDirectory = dir_open(inodePtr);
+            }
+            else
+            {
+                inode_close(inodePtr);
+            }
+        
+        }
+
+        success = (currentDirectory != NULL
+                        && free_map_allocate(1, &inode_sector)
+                        && inode_create(inode_sector, initial_size, type)
+                        && dir_add(currentDirectory, args[numArgs - 1], inode_sector));
+
+        if (!success && inode_sector != 0) {
+            free_map_release(inode_sector, 1);
+        }
+
+        //dir_close(currentDirectory);
+    }
+
+    free(copy);
+
+    return success;
+}
+
+/* Opens the file with the given NAME.
+ * Returns the new file if successful or a null pointer
+ * otherwise.
+ * Fails if no file named NAME exists,
+ * or if an internal memory allocation fails. */
+struct file *
+filesys_open(const char *name)
+{
+    //struct dir *dir = dir_open_root();
+    struct inode *inode = NULL;
+
+    char** args = malloc(strlen(name)+1);
+    int numArgs = 0;
+    char *save_ptr, *token;
+    char *copy = (char *) malloc((strlen(name) + 1));
+    strlcpy(copy, name, strlen(name) + 1);
+
+    struct dir * currentDirectory;
+
+    if(strcmp(copy, "") == 0)
+    {
+        currentDirectory = dir_open_root();
+        currentDirectory->inode->data.type = 1;
+        if(currentDirectory != NULL)
+        {
+            dir_lookup(currentDirectory, copy, &inode);
+        }
+        dir_close(currentDirectory);
+
+    }
+    else if(strcmp(copy, "/") == 0)
+    {
+        currentDirectory = (struct file *)(dir_open_root());
+        currentDirectory->inode->data.type = 1;
+        return currentDirectory; 
+    }     
+    else
+    {    
+
+        if(copy[0] == '/' || thread_current()->currDirectory == NULL)
             currentDirectory = dir_open_root();
         else
         {
@@ -97,57 +190,31 @@ filesys_create(const char *name, off_t initial_size, int type)
         for(int i = 0; i < numArgs - 1; i++)
         {
             struct inode * inodePtr;
-
-
-            if(dir_lookup(currentDirectory, args[i], inodePtr) == false)
-            {
-                free(copy);
+            
+            if(dir_lookup(currentDirectory, args[i], &inodePtr) == false)
                 return false;
-            }
-            else
+            else if(inodePtr->data.type == 1)
             {
                 dir_close(currentDirectory);
                 currentDirectory = dir_open(inodePtr);
             }
-        
+            else
+            {
+                inode_close(inodePtr);
+            }
+            
         }
 
-        char * newStr = args[numArgs-1];
-        newStr += 0;
-
-        success = (currentDirectory != NULL
-                        && free_map_allocate(1, &inode_sector)
-                        && inode_create(inode_sector, initial_size, type)
-                        && dir_add(currentDirectory, newStr, inode_sector));
-
-        if (!success && inode_sector != 0) {
-            free_map_release(inode_sector, 1);
+        if (currentDirectory != NULL) {
+            dir_lookup(currentDirectory, args[numArgs - 1], &inode);
         }
         dir_close(currentDirectory);
     }
 
     free(copy);
 
-    return success;
-}
-
-/* Opens the file with the given NAME.
- * Returns the new file if successful or a null pointer
- * otherwise.
- * Fails if no file named NAME exists,
- * or if an internal memory allocation fails. */
-struct file *
-filesys_open(const char *name)
-{
-    struct dir *dir = dir_open_root();
-    struct inode *inode = NULL;
-
-    if (dir != NULL) {
-        dir_lookup(dir, name, &inode);
-    }
-    dir_close(dir);
-
     return file_open(inode);
+    
 }
 
 /* Deletes the file named NAME.
@@ -157,10 +224,70 @@ filesys_open(const char *name)
 bool
 filesys_remove(const char *name)
 {
-    struct dir *dir = dir_open_root();
-    bool success = dir != NULL && dir_remove(dir, name);
+    //struct dir *dir = dir_open_root();
+    bool success;
 
-    dir_close(dir);
+    char** args = malloc(strlen(name)+1);
+    int numArgs = 0;
+    char *save_ptr, *token;
+    char *copy = (char *) malloc((strlen(name) + 1));
+    strlcpy(copy, name, strlen(name) + 1);    
+
+    struct dir * currentDirectory;
+
+    if(strcmp(copy, "/") == 0)
+        return false;
+    else if(strcmp(copy, "") == 0)
+    {
+        currentDirectory = dir_open_root();
+        currentDirectory->inode->data.type = 1;
+        if(currentDirectory != NULL)
+        {
+            success = copy != NULL && dir_remove(currentDirectory, copy);
+        }
+        dir_close(currentDirectory);
+
+    }  
+    else
+    {
+        if(copy[0] == '/' || thread_current()->currDirectory == NULL)
+            currentDirectory = dir_open_root();
+        else
+        {
+            currentDirectory = thread_current()->currDirectory;
+        }
+        
+
+        while((token = strtok_r(copy, "/", &save_ptr)) != NULL){
+            args[numArgs] = token;
+            numArgs++;
+            copy = NULL;
+        }
+
+
+        for(int i = 0; i < numArgs - 1; i++)
+        {
+            struct inode * inodePtr;
+            
+            if(dir_lookup(currentDirectory, args[i], &inodePtr) == false)
+                return false;
+            else if(inodePtr->data.type == 1)
+            {
+                dir_close(currentDirectory);
+                currentDirectory = dir_open(inodePtr);
+            }
+            else
+            {
+                inode_close(inodePtr);
+            }
+                
+        }  
+
+        success = args[numArgs - 1] != NULL && dir_remove(currentDirectory, args[numArgs - 1]);
+        dir_close(currentDirectory);
+    }
+
+    free(copy);
 
     return success;
 }

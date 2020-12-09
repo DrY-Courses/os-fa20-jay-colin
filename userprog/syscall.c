@@ -8,6 +8,9 @@
 #include "userprog/pagedir.h"
 #include "lib/user/syscall.h"
 #include "filesys/filesys.h"
+#include "filesys/inode.h"
+#include "filesys/file.h"
+#include "filesys/directory.h"
 #include "string.h"
 #include "stdlib.h"
 #include "threads/synch.h"
@@ -51,7 +54,6 @@ syscall_handler(struct intr_frame *f UNUSED)
     uint32_t callNo;
     uint32_t *user_esp = f->esp;
     struct thread *t = thread_current();
-    t->espPtr = f->esp;
     
     if(!is_user_vaddr(user_esp) || pagedir_get_page(t->pagedir, user_esp) == NULL)
                 sys_exit(-1);
@@ -545,38 +547,49 @@ bool chdir(const char *dir)
     char** args = malloc(strlen(dir)+1);
     int numArgs = 0;
     char *save_ptr, *token;
+    char *copy = (char *) malloc((strlen(dir) + 1));
+    strlcpy(copy, dir, strlen(dir) + 1);
 
     struct dir * currentDirectory;
 
-    if(dir[0] == '/' || thread_current()->currDirectory == NULL)
-       currentDirectory = dir_open_root();
+    if(copy[0] == '/' || thread_current()->currDirectory == NULL)
+    {
+        currentDirectory = dir_open_root();
+        currentDirectory->inode->data.type = 1;
+    }
     else
     {
         currentDirectory = thread_current()->currDirectory;
     }
-    
 
-    while((token = strtok_r(dir, "/", &save_ptr)) != NULL){
+    while((token = strtok_r(copy, "/", &save_ptr)) != NULL){
         args[numArgs] = token;
         numArgs++;
-        dir = NULL;
+        copy = NULL;
     }
-
 
     for(int i = 0; i < numArgs; i++)
     {
         struct inode * inodePtr;
-        if(dir_lookup(currentDirectory, args[i], inodePtr) == false)
+
+        if(dir_lookup(currentDirectory, args[i], &inodePtr) == false)
             return false;
-        else
+        else if(inodePtr->data.type == 1)
         {
             dir_close(currentDirectory);
             currentDirectory = dir_open(inodePtr);
         }
-        
+        else
+        {
+            inode_close(inodePtr);
+        }
+           
     }
 
     thread_current()->currDirectory = currentDirectory;
+
+    free(args);
+    free(copy);
 
     return true;
 
@@ -602,13 +615,32 @@ bool mkdir (const char *dir)
 //Otherwise, each directory entry should be read once, in any order. 
 bool readdir (int fd, char *name)
 {
-    return false;
+    struct file_elem * fPtr = get_file(fd);
+
+    if(fPtr == NULL)
+        return false;
+    
+    struct file * filePtr = fPtr->file;
+
+    if(filePtr->inode->data.type == 0)
+        return false;
+
+    bool retVal = dir_readdir((struct dir *)filePtr, name);
+    return retVal;
 } 
 
 //Returns true if fd represents a directory, false if it represents an ordinary file. 
 bool isdir (int fd)
 {
-    return false;
+    struct file_elem * fPtr = get_file(fd);
+    
+    if(fPtr == NULL)
+        return false;
+    
+    struct file * filePtr = fPtr->file;
+
+    return (filePtr->inode->data.type == 1);
+
 }
 
 //Returns the inode number of the inode associated with fd, which may represent an ordinary file or a directory.
@@ -616,7 +648,14 @@ bool isdir (int fd)
 //In Pintos, the sector number of the inode is suitable for use as an inode number. 
 int inumber (int fd)
 {
-    return 0;
+    struct file_elem * fPtr = get_file(fd);
+    
+    if(fPtr == NULL)
+        return false;
+    
+    struct file * filePtr = fPtr->file;
+
+    return inode_get_inumber(filePtr->inode);
 }
 
 struct file_elem * get_file(int fd)

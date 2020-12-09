@@ -11,7 +11,7 @@
  * This is the traditional UNIX maximum length.
  * After directories are implemented, this maximum length may be
  * retained, but much longer full path names must be allowed. */
-#define NAME_MAX 14
+#define NAME_MAX 32
 
 /* A directory. */
 struct dir {
@@ -39,5 +39,6 @@ bool dir_lookup(const struct dir *, const char *name, struct inode **);
 bool dir_add(struct dir *, const char *name, block_sector_t);
 bool dir_remove(struct dir *, const char *name);
 bool dir_readdir(struct dir *, char name[NAME_MAX + 1]);
+bool dir_isEmpty(struct inode * inode);
 
 #endif /* filesys/directory.h */

@@ -4,7 +4,6 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include <hash.h>
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -103,9 +102,6 @@ struct thread {
     struct semaphore *launching; 
     int exitValue;
     uint32_t *pagedir; /* Page directory. */
-    struct hash pageTable;
-    struct file *filePtr;
-    void *espPtr;
     struct dir * currDirectory;
 
 #ifdef USERPROG

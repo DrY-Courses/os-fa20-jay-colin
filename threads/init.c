@@ -82,7 +82,6 @@ main(void)
 {
     char **argv;
 
-    
     /* Clear BSS. */
     bss_init();
 
@@ -115,8 +114,6 @@ main(void)
     timer_init();
     kbd_init();
     input_init();
-
-    frame_init();
 #ifdef USERPROG
     exception_init();
     syscall_init();

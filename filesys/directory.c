@@ -12,7 +12,7 @@
 bool
 dir_create(block_sector_t sector, size_t entry_cnt)
 {
-    return inode_create(sector, entry_cnt * sizeof(struct dir_entry), 0);
+    return inode_create(sector, entry_cnt * sizeof(struct dir_entry), 1);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -115,7 +115,6 @@ dir_lookup(const struct dir *dir, const char *name,
         *inode = NULL;
     }
 
-
     return *inode != NULL;
 }
 
@@ -194,6 +193,11 @@ dir_remove(struct dir *dir, const char *name)
         goto done;
     }
 
+    if(inode->data.type == 1 && !dir_isEmpty(inode))
+    {   
+        goto done;
+    }
+
     /* Erase directory entry. */
     e.in_use = false;
     if (inode_write_at(dir->inode, &e, sizeof e, ofs) != sizeof e) {
@@ -225,4 +229,19 @@ dir_readdir(struct dir *dir, char name[NAME_MAX + 1])
         }
     }
     return false;
+}
+
+bool
+dir_isEmpty(struct inode * inode)
+{
+    struct dir_entry e;
+    off_t pos = 0;
+
+    while (inode_read_at(inode, &e, sizeof e, pos) == sizeof e) {
+        pos += sizeof e;
+        if (e.in_use) {
+            return false;
+        }
+    }
+    return true;
 }
